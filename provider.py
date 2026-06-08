@@ -41,7 +41,18 @@ CERT_FILE = "serviceAccountKey.json"
 MAPPING_FILE = "public/mapping.json"
 
 if not firebase_admin._apps:
-    firebase_admin.initialize_app(credentials.Certificate(CERT_FILE), {'databaseURL': DB_URL})
+    import os
+    import json
+    from firebase_admin import credentials
+    
+    cred_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_CONTENT')
+    if cred_json:
+        cred_dict = json.loads(cred_json)
+        cred = credentials.Certificate(cred_dict)
+    else:
+        cred = credentials.Certificate("serviceAccountKey.json")  # fallback
+    
+    firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
 
 def get_routes_map():
     try:
