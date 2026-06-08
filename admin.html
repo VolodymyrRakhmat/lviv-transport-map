@@ -132,15 +132,14 @@
         }
 
         async function loadMapping() {
-            try {
-                let response = await fetch('mapping.json?t=' + Date.now());
-                if (!response.ok) response = await fetch('../mapping.json?t=' + Date.now());
-                MAPPING = await response.json();
-                console.log(`✅ Mapping: ${Object.keys(MAPPING).length} записів`);
-            } catch (e) {
-                console.error("Помилка mapping", e);
-            }
-        }
+    try {
+        let response = await fetch('public/mapping.json?t=' + Date.now());
+        MAPPING = await response.json();
+        console.log(`✅ Mapping: ${Object.keys(MAPPING).length} записів`);
+    } catch (e) {
+        console.error("Помилка mapping", e);
+    }
+}
 
         async function forceRefresh() {
             await loadMapping();

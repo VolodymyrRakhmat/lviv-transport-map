@@ -120,7 +120,7 @@
 
     async function loadStops() {
         try {
-            const res = await fetch('stops.txt?t=' + Date.now());
+            const res = await fetch('./public/stops.txt?t=' + Date.now())
             const text = await res.text();
             const lines = text.split('\n');
             lines.forEach(line => {
@@ -235,7 +235,7 @@
         });
     }
 
-    fetch('mapping.json?t=' + Date.now())
+    fetch('./public/mapping.json?t=' + Date.now())
         .then(r => r.json())
         .then(data => { window.mapping = data; console.log('✅ Mapping завантажено'); })
         .catch(() => console.warn('mapping.json не знайдено'));

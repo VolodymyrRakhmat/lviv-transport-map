@@ -1,6 +1,4 @@
-firebase-admin
+firebase-admin>=6.0.0
 requests
 pandas
-gtfs-realtime-bindings
-flask
-gunicorn
+google-transit

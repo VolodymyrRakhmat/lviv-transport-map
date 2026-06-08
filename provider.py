@@ -38,7 +38,7 @@ DB_URL = 'https://lviv-transport-web-default-rtdb.firebaseio.com/'
 STATIC_URL = "http://track.ua-gis.com/gtfs/lviv/static.zip"
 REALTIME_URL = "http://track.ua-gis.com/gtfs/lviv/vehicle_position"
 CERT_FILE = "serviceAccountKey.json"
-MAPPING_FILE = r"C:\Users\Volodymyr\lviv-transport-web\public\mapping.json"
+MAPPING_FILE = "public/mapping.json"
 
 if not firebase_admin._apps:
     firebase_admin.initialize_app(credentials.Certificate(CERT_FILE), {'databaseURL': DB_URL})
