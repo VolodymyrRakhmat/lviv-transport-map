@@ -1,4 +1,4 @@
 firebase-admin>=6.0.0
 requests
 pandas
-google-transit
+gtfs-realtime-bindings

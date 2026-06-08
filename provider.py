@@ -3,7 +3,7 @@ from email.mime.text import MIMEText
 from io import BytesIO
 from firebase_admin import credentials, db
 from datetime import datetime
-from google.transit import gtfs_realtime_pb2
+from gtfs_realtime_pb2 import FeedMessage
 import pandas as pd
 
 # ================== НАЛАШТУВАННЯ ПОШТИ ==================
@@ -106,7 +106,7 @@ def run():
             res = requests.get(REALTIME_URL, timeout=(10, 60))
             
             if res.status_code == 200:
-                feed = gtfs_realtime_pb2.FeedMessage()
+                feed = FeedMessage()
                 feed.ParseFromString(res.content)
 
                 current_ts = int(time.time())
