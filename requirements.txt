@@ -1,0 +1,6 @@
+firebase-admin
+requests
+pandas
+gtfs-realtime-bindings
+flask
+gunicorn

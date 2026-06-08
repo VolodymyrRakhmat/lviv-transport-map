@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Адмін-панель</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .controls { background: #f8f8f8; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ccc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; vertical-align: top; }
+        th { background: #444; color: white; }
+        .day-row { background: #f0f8ff; }
+        .summary { 
+            background: #e8f5e8; 
+            padding: 18px; 
+            border-radius: 10px; 
+            font-size: 1.15em; 
+            margin-bottom: 25px;
+            border-left: 5px solid #4caf50;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Панель керування</h1>
+    <div class="controls">
+        <button onclick="forceRefresh()" style="background:#ffcc00; font-weight:bold; padding:10px 15px;">
+            🔄 Оновити мапінг + статистику
+        </button>
+        <hr>
+        <input type="date" id="date-pick">
+        <button onclick="loadStatsByDay()">📊 Статистика дня</button>
+        <hr>
+        <input type="text" id="route-pick" placeholder="Маршрут (наприклад А01 або Тр22)">
+        <button onclick="loadRouteStats()">🔍 Пошук по маршруту</button>
+        <input type="text" id="bort-pick" placeholder="Номер авто">
+        <button onclick="loadBortStats()">🔍 Пошук по машині</button>
+    </div>
+    <div id="stats-output"></div>
+
+    <script>
+        let MAPPING = {};
+        firebase.initializeApp({databaseURL: "https://lviv-transport-web-default-rtdb.firebaseio.com/"});
+        const db = firebase.database();
+
+        // === НОРМАЛІЗАЦІЯ ===
+        function normalizeRoute(route) {
+            if (!route) return '';
+            let r = String(route).trim().toUpperCase().replace(/\s+/g, '');
+
+            if (/^\d+$/.test(r)) return null;
+
+            r = r.replace(/^АА?0?(\d{1,2})/, 'А$1');
+            
+            const map = {
+                '1A': 'А01', '3A': 'А03', '5А': 'А05', '6А': 'А06', 
+                '8A': 'А08а', '39A': 'А39а',
+                '1': 'Т01', '2': 'Т02', '3': 'Т03', '4': 'Т04', 
+                '6': 'Т06', '7': 'Т07', '8': 'Т08', '9': 'Т09',
+                '22': 'Тр22', '23': 'Тр23', '24': 'Тр24', '25': 'Тр25', 
+                '27': 'Тр27', '30': 'Тр30', '31': 'Тр31', '32': 'Тр32', '38': 'Тр38'
+            };
+
+            if (map[r]) return map[r];
+
+            if (r.startsWith('А')) {
+                let num = r.replace(/[^0-9]/g, '');
+                if (num) return 'А' + num.padStart(2, '0');
+            }
+            return r;
+        }
+
+        // === КРАСИВИЙ ВИВІД (Автобуси тепер у форматі А1А) ===
+        const routeDisplayMap = {
+            // Автобуси — формат А1А, А3А, А10А тощо
+            'А01': 'А1А', 'А03': 'А3А', 'А05': 'А5А', 'А06': 'А6А', 
+            'А07': 'А7А', 'А08а': 'А8А', 'А09': 'А9А',
+            'А10': 'А10А', 'А11': 'А11А', 'А12': 'А12А', 'А14': 'А14А', 
+            'А15': 'А15А', 'А16': 'А16А', 'А17': 'А17А', 'А18': 'А18А',
+            'А19': 'А19А', 'А20': 'А20А', 'А21': 'А21А', 'А22': 'А22А',
+            'А23': 'А23А', 'А25': 'А25А', 'А27': 'А27А', 'А29': 'А29А',
+            'А31': 'А31А', 'А32': 'А32А', 'А33': 'А33А', 'А34': 'А34А',
+            'А37': 'А37А', 'А39': 'А39А', 'А39а': 'А39А', 'А40': 'А40А',
+            'А41': 'А41А', 'А43': 'А43А', 'А45': 'А45А', 'А46': 'А46А',
+            'А47': 'А47А', 'А48': 'А48А', 'А49': 'А49А', 'А51': 'А51А',
+            'А52': 'А52А', 'А53': 'А53А', 'А55': 'А55А', 'А56': 'А56А',
+            'А57': 'А57А', 'А58': 'А58А', 'А59': 'А59А', 'А60': 'А60А',
+            'А61': 'А61А', 'А62': 'А62А', 'А63': 'А63А', 'А67': 'А67А',
+            'А80': 'А80А', 'А84': 'А84А', 'А92': 'А92А', 'А99': 'А99А',
+            'АТ8': 'АТ8',
+
+            // Трамваї
+            'Т01': 'Т1', 'Т02': 'Т2', 'Т03': 'Т3', 'Т04': 'Т4',
+            'Т06': 'Т6', 'Т07': 'Т7', 'Т08': 'Т8', 'Т09': 'Т9',
+
+            // Тролейбуси
+            'Тр22': '22', 'Тр23': '23', 'Тр24': '24', 'Тр25': '25',
+            'Тр27': '27', 'Тр30': '30', 'Тр31': '31', 'Тр32': '32', 'Тр38': '38'
+        };
+
+        function getDisplayRoute(normRoute) {
+            return routeDisplayMap[normRoute] || normRoute;
+        }
+
+        function cleanBortName(name) {
+            if (!name) return '';
+            let s = String(name).split(',')[0].trim();
+            s = s.replace(/[^A-ZА-Я0-9\s-]/gi, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+            return s;
+        }
+
+        function getBortName(raw_p, pValue) {
+            if (MAPPING[raw_p]) {
+                const val = MAPPING[raw_p];
+                return cleanBortName(Array.isArray(val) ? val[0] : val);
+            }
+            return cleanBortName(pValue || raw_p);
+        }
+
+        function isIdentified(raw_p) {
+            return !!MAPPING[raw_p];
+        }
+
+        function getTransportType(route) {
+            if (!route) return 'інше';
+            const r = String(route).toUpperCase();
+            if (r.startsWith('А')) return 'автобус';
+            if (r.startsWith('Т') && !r.startsWith('ТР')) return 'трамвай';
+            if (r.startsWith('ТР')) return 'тролейбус';
+            return 'інше';
+        }
+
+        async function loadMapping() {
+            try {
+                let response = await fetch('mapping.json?t=' + Date.now());
+                if (!response.ok) response = await fetch('../mapping.json?t=' + Date.now());
+                MAPPING = await response.json();
+                console.log(`✅ Mapping: ${Object.keys(MAPPING).length} записів`);
+            } catch (e) {
+                console.error("Помилка mapping", e);
+            }
+        }
+
+        async function forceRefresh() {
+            await loadMapping();
+            const dateInput = document.getElementById('date-pick');
+            if (!dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
+            await loadStatsByDay();
+        }
+
+        setInterval(loadMapping, 30000);
+        loadMapping();
+
+        // ====================== СТАТИСТИКА ДНЯ ======================
+        async function loadStatsByDay() {
+            const d = document.getElementById('date-pick').value;
+            if (!d) return alert("Виберіть дату!");
+
+            const snap = await db.ref(`history/${d}`).once('value');
+            const data = snap.val();
+
+            if (!data) {
+                document.getElementById('stats-output').innerHTML = `<h3>За ${d} даних немає</h3>`;
+                return;
+            }
+
+            let report = {};
+            let totalRecords = 0;
+            let identified = 0;
+
+            let typeCount = {
+                'автобус': new Set(),
+                'трамвай': new Set(),
+                'тролейбус': new Set(),
+                'інше': new Set()
+            };
+
+            Object.values(data).forEach(hour => {
+                Object.values(hour || {}).forEach(v => {
+                    if (!v || !v.r || !v.raw_p) return;
+                    totalRecords++;
+
+                    if (!isIdentified(v.raw_p)) return;
+
+                    const normRoute = normalizeRoute(v.r);
+                    if (!normRoute) return;
+
+                    const bortName = getBortName(v.raw_p, v.p);
+                    if (!bortName) return;
+
+                    identified++;
+
+                    if (!report[normRoute]) report[normRoute] = new Set();
+                    report[normRoute].add(bortName);
+
+                    const type = getTransportType(normRoute);
+                    typeCount[type].add(bortName);
+                });
+            });
+
+            const busCount = typeCount['автобус'].size;
+            const tramCount = typeCount['трамвай'].size;
+            const troleyCount = typeCount['тролейбус'].size;
+
+            let summary = `
+                <div class="summary">
+                    <strong>Цей день зафіксовано:</strong> 
+                    <span style="color:#1976d2;">${busCount} автобусів</span> • 
+                    <span style="color:#d32f2f;">${tramCount} трамваїв</span> • 
+                    <span style="color:#f57c00;">${troleyCount} тролейбусів</span>
+                </div>
+                <p><small>Всього ідентифіковано: <b>${identified}</b> ТЗ (з ${totalRecords} записів)</small></p>
+            `;
+
+            let html = `<h3>Детальна статистика за ${d}</h3>` + summary + `
+                <table>
+                    <tr><th>Маршрут</th><th>Унікальних ТЗ</th><th>Номери</th></tr>
+            `;
+
+            Object.keys(report)
+                .sort((a, b) => {
+                    const da = getDisplayRoute(a);
+                    const db = getDisplayRoute(b);
+                    return da.localeCompare(db, 'uk', {numeric: true});
+                })
+                .forEach(r => {
+                    const list = [...report[r]].sort();
+                    const display = getDisplayRoute(r);
+                    html += `<tr class="day-row">
+                        <td><b>${display}</b></td>
+                        <td>${list.length}</td>
+                        <td>${list.join(', ')}</td>
+                    </tr>`;
+                });
+
+            html += `</table>`;
+            document.getElementById('stats-output').innerHTML = html;
+        }
+
+        // ====================== ПОШУК ПО МАРШРУТУ ======================
+        async function loadRouteStats() {
+            let r = document.getElementById('route-pick').value.trim();
+            if (!r) return alert("Вкажіть маршрут!");
+
+            const normalizedSearch = normalizeRoute(r);
+            if (!normalizedSearch) return alert("Невірний формат маршруту!");
+
+            const displaySearch = getDisplayRoute(normalizedSearch);
+
+            const snap = await db.ref(`history`).once('value');
+            const allData = snap.val() || {};
+
+            let html = `<h3>Маршрут <b>${displaySearch}</b> — унікальні ТЗ по днях</h3>`;
+            html += `<table><tr><th>Дата</th><th>Унікальних ТЗ</th><th>Борти</th></tr>`;
+
+            const dates = Object.keys(allData).sort().reverse();
+
+            for (let date of dates) {
+                let borts = new Set();
+                Object.values(allData[date]).forEach(hour => {
+                    Object.values(hour || {}).forEach(v => {
+                        if (!v || !v.raw_p) return;
+                        if (normalizeRoute(v.r) !== normalizedSearch) return;
+                        if (isIdentified(v.raw_p)) {
+                            borts.add(getBortName(v.raw_p, v.p));
+                        }
+                    });
+                });
+
+                if (borts.size > 0) {
+                    html += `<tr class="day-row">
+                        <td><b>${date}</b></td>
+                        <td>${borts.size}</td>
+                        <td>${[...borts].sort().join(', ')}</td>
+                    </tr>`;
+                }
+            }
+            html += `</table>`;
+            document.getElementById('stats-output').innerHTML = html;
+        }
+
+        // ====================== ПОШУК ПО МАШИНІ ======================
+        async function loadBortStats() {
+            let search = document.getElementById('bort-pick').value.trim().toLowerCase();
+            if (!search) return alert("Вкажіть номер авто!");
+
+            const snap = await db.ref(`history`).once('value');
+            const allData = snap.val() || {};
+
+            let html = `<h3>Машина <b>${search.toUpperCase()}</b> — історія по днях</h3>`;
+            html += `<table><tr><th>Дата</th><th>Маршрути</th><th>Кількість виходів</th></tr>`;
+
+            const dates = Object.keys(allData).sort().reverse();
+
+            for (let date of dates) {
+                let routes = new Set();
+                let count = 0;
+
+                Object.values(allData[date]).forEach(hour => {
+                    Object.values(hour || {}).forEach(v => {
+                        if (!v || !v.raw_p || !v.p) return;
+                        const bortName = getBortName(v.raw_p, v.p).toLowerCase();
+                        if (bortName.includes(search) && isIdentified(v.raw_p)) {
+                            const norm = normalizeRoute(v.r);
+                            if (norm) routes.add(getDisplayRoute(norm));
+                            count++;
+                        }
+                    });
+                });
+
+                if (count > 0) {
+                    html += `<tr class="day-row">
+                        <td><b>${date}</b></td>
+                        <td>${[...routes].sort().join(', ')}</td>
+                        <td>${count}</td>
+                    </tr>`;
+                }
+            }
+
+            html += `</table>`;
+            document.getElementById('stats-output').innerHTML = html;
+        }
+    </script>
+</body>
+</html>

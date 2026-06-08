@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; }
+        #map { height: 100vh; width: calc(100% - 380px); position: absolute; left: 0; top: 0; }
+        #side-panel { position: absolute; top: 0; right: 0; width: 350px; height: 100vh; z-index: 1000; background: white; box-shadow: -4px 0 20px rgba(0,0,0,0.15); display: flex; flex-direction: column; }
+        .panel-header { padding: 15px; background: #2c3e50; color: white; }
+        .panel-header h3 { margin: 0; font-size: 16px; display: flex; align-items: center; justify-content: space-between; }
+        .header-actions { display: flex; gap: 5px; }
+        .btn-header { padding: 5px 8px; font-size: 11px; font-weight: bold; cursor: pointer; border: none; border-radius: 4px; text-decoration: none; text-align: center; }
+        .btn-admin { background: #e67e22; color: white; }
+        .btn-admin:hover { background: #d35400; }
+        .btn-map { background: #34495e; color: white; border: 1px solid #576574; }
+        .btn-map:hover { background: #2c3e50; }
+        
+        .tab-content { padding: 15px; flex: 1; overflow-y: auto; }
+        .global-controls { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+        .global-controls button { flex: 1; padding: 6px; font-size: 11px; cursor: pointer; background: #34495e; color: white; border: none; border-radius: 4px; }
+
+        .filter-row, .stats-panel { margin: 12px 0 8px; background: #f8f9fa; padding: 10px; border-radius: 6px; }
+        .filter-title { font-weight: bold; margin-bottom: 8px; }
+        .checkbox-group { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+
+        .type-header { font-weight: bold; padding: 6px 10px; margin-top: 15px; background: #f1f2f6; border-radius: 4px; font-size: 13px; }
+        .route-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 5px; margin-top: 5px; }
+        .route-btn { padding: 8px 2px; border: 1px solid #dcdde1; border-radius: 6px; text-align: center; cursor: pointer; font-size: 12px; font-weight: 600; background: white; transition: 0.15s; }
+        .route-btn:hover { background: #f5f6fa; }
+        .route-btn.active { background: #3498db; color: white; border-color: #2980b9; box-shadow: 0 2px 5px rgba(52, 152, 219, 0.4); }
+        .route-btn.online { border-bottom: 3px solid #2ecc71; }
+
+        .vehicle-marker-wrapper { position: relative; width: 145px; height: 72px; }
+        .vehicle-arrow-box { position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%); font-size: 24px; z-index: 2; text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff; }
+        .vehicle-title-box { 
+            position: absolute; left: 50%; top: 68%; transform: translateX(-50%); 
+            background: #ffffff; border: 1px solid #7f8c8d; border-radius: 4px; 
+            padding: 2px 8px; font-size: 10.7px; font-weight: bold; color: #2c3e50; 
+            white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
+            display: flex; align-items: center; gap: 4px;
+        }
+        .vehicle-marker-wrapper.low-floor .vehicle-title-box { border: 3px solid #2ecc71 !important; }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<div id="side-panel">
+    <div class="panel-header">
+        <h3>
+            <div class="header-actions">
+                <a href="admin.html" target="_blank" class="btn-header btn-admin">🛠️ Статистика</a>
+                <button onclick="toggleMap()" class="btn-header btn-map">🗺️ Карта</button>
+            </div>
+        </h3>
+    </div>
+    <div id="routes-tab" class="tab-content">
+        <button onclick="toggleStats()" style="width:100%; padding:9px; margin:8px 0; background:#3498db; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">
+            📊 Детальніше (статистика + моделі)
+        </button>
+
+        <div id="stats-panel" class="stats-panel" style="display:none;">
+            <div class="stats-title">Статистика активних ТЗ</div>
+            <div id="stats-content" style="font-size:13px; line-height:1.5; margin-bottom:12px;"></div>
+            
+            <div class="filter-title">Фільтр по моделі:</div>
+            <div id="model-filters" class="checkbox-group"></div>
+        </div>
+
+        <div class="filter-row">
+            <div class="filter-title">Фільтри характеристик:</div>
+            <div class="checkbox-group">
+                <label class="filter-option"><input type="checkbox" id="filter-ac-full" onchange="applyFilters()"> ❄️ Кондиціонер</label>
+                <label class="filter-option"><input type="checkbox" id="filter-ac-one" onchange="applyFilters()"> ❄️½ Малий кондиціонер</label>
+                <label class="filter-option"><input type="checkbox" id="filter-vent" onchange="applyFilters()"> 🌬️ Вентиляція</label>
+                <label class="filter-option"><input type="checkbox" id="filter-low" onchange="applyFilters()"> ♿ Низька підлога</label>
+            </div>
+            <button onclick="resetFilters()" style="margin-top:8px; width:100%; padding:6px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;">Скинути всі фільтри</button>
+        </div>
+
+        <div class="global-controls">
+            <button onclick="massSelect(true)">Увімкнути всі</button>
+            <button onclick="massSelect(false)">Вимкнути всі</button>
+        </div>
+
+        <div class="type-header" style="border-left: 5px solid #e67e22;">🚃 Трамваї</div>
+        <div id="grid-tram" class="route-grid"></div>
+        <div class="type-header" style="border-left: 5px solid #9b59b6;">🚎 Тролейбуси</div>
+        <div id="grid-trolley" class="route-grid"></div>
+        <div class="type-header" style="border-left: 5px solid #e74c3c;">🚌 Автобуси</div>
+        <div id="grid-bus" class="route-grid"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    const db = getDatabase(initializeApp({ databaseURL: "https://lviv-transport-web-default-rtdb.firebaseio.com" }));
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+
+    const map = L.map('map', { center: [49.84, 24.03], zoom: 13, layers: [osm] });
+
+    window.toggleMap = () => map.hasLayer(osm) ? (map.removeLayer(osm), sat.addTo(map)) : (map.removeLayer(sat), osm.addTo(map));
+
+    let markers = {}, routeLines = {}, activeRoutes = new Set(), shapesData = {}, existingButtons = new Set();
+    let stopsDict = {};
+    let showStats = false;
+    let selectedModels = new Set();
+    let renderTimeout = null;
+
+    // Debounced render — головний фікс кліпання
+    function debouncedRender(data) {
+        if (renderTimeout) clearTimeout(renderTimeout);
+        renderTimeout = setTimeout(() => render(data), 130);
+    }
+
+    async function loadStops() {
+        try {
+            const res = await fetch('stops.txt?t=' + Date.now());
+            const text = await res.text();
+            const lines = text.split('\n');
+            lines.forEach(line => {
+                if (!line.trim() || line.startsWith('stop_id')) return;
+                const parts = line.split(',');
+                if (parts.length >= 6) {
+                    const stop_id = parts[0].trim();
+                    stopsDict[stop_id] = {
+                        name: parts[2].trim().replace(/"/g, ''),
+                        lat: parseFloat(parts[4]),
+                        lon: parseFloat(parts[5])
+                    };
+                }
+            });
+        } catch (e) {}
+    }
+    loadStops();
+
+    const routeDisplayMap = {
+        'А01': '1A', 'А03': '3A', 'А05': '5А', 'А06': '6А', 'А07': '7', 'А09': '9',
+        'А10': '10', 'А11': '11', 'А12': '12', 'А14': '14', 'А15': '15', 'А16': '16',
+        'А17': '17', 'А18': '18', 'А19': '19', 'А20': '20', 'А21': '21', 'А22': '22',
+        'А23': '23', 'А25': '25', 'А27': '27', 'А29': '29', 'А31': '31', 'А32': '32',
+        'А33': '33', 'А34': '34', 'А37': '37', 'А39': '39', 'А40': '40', 'А41': '41',
+        'А43': '43', 'А45': '45', 'А46': '46', 'А47': '47А', 'А48': '48', 'А49': '49А',
+        'А51': '51', 'А52': '52', 'А53': '53', 'А55': '55', 'А56': '56', 'А57': '57',
+        'А58': '58', 'А59': '59', 'А60': '60', 'А61': '61', 'А62': '62', 'А63': '63',
+        'А67': '67', 'А80': '80', 'А84': '84', 'А92': '92', 'А99': '99', 'АТ8': 'Т8',
+        'А08а': '8A', 'А39а': '39A',
+        'Т01': '1', 'Т02': '2', 'Т03': '3', 'Т04': '4', 'Т06': '6',
+        'Т07': '7', 'Т08': '8', 'Т09': '9',
+        'Тр22': '22', 'Тр23': '23', 'Тр24': '24', 'Тр25': '25', 'Тр27': '27',
+        'Тр30': '30', 'Тр31': '31', 'Тр32': '32', 'Тр38': '38'
+    };
+
+    const allRoutes = {
+        tram: ['Т01','Т02','Т03','Т04','Т06','Т07','Т08','Т09'],
+        trolley: ['Тр22','Тр23','Тр24','Тр25','Тр27','Тр30','Тр31','Тр32','Тр38'],
+        bus: ['А01','А03','А05','А06','А07','А09','А10','А11','А12','А14','А15','А16','А17','А18','А19',
+              'А20','А21','А22','А23','А25','А27','А29','А31','А32','А33','А34','А37','А39','А40','А41',
+              'А43','А45','А46','А47','А48','А49','А51','А52','А53','А55','А56','А57','А58','А59','А60',
+              'А61','А62','А63','А67','А80','А84','А92','А99','АТ8','А08а','А39а']
+    };
+
+    function getCleanRoute(raw) { if(!raw) return ''; return raw.toString().trim(); }
+    function getDisplayName(internalName) { return routeDisplayMap[internalName] || internalName; }
+
+    function createRouteButton(type, internalName) {
+        const routeKey = `${type}-${internalName}`;
+        if (existingButtons.has(routeKey)) return;
+        const grid = document.getElementById(`grid-${type}`);
+        if (!grid) return;
+        const b = document.createElement('div');
+        b.className = 'route-btn';
+        b.id = `r-${type}-${internalName}`;
+        b.innerText = getDisplayName(internalName);
+        b.onclick = () => toggleRoute(type, internalName);
+        grid.appendChild(b);
+        existingButtons.add(routeKey);
+    }
+
+    function initAllRouteButtons() {
+        Object.entries(allRoutes).forEach(([type, routes]) => {
+            routes.forEach(internalName => createRouteButton(type, internalName));
+        });
+    }
+    initAllRouteButtons();
+
+    window.massSelect = (selectAll) => {
+        existingButtons.forEach(routeKey => {
+            const [type, internal] = routeKey.split('-');
+            const btn = document.getElementById(`r-${type}-${internal}`);
+            if (selectAll) {
+                activeRoutes.add(routeKey);
+                if(btn) btn.classList.add('active');
+            } else {
+                activeRoutes.delete(routeKey);
+                if(btn) btn.classList.remove('active');
+            }
+        });
+        drawRouteLines();
+        debouncedRender(window.lastV);
+    };
+
+    function toggleRoute(type, internalName) {
+        const routeKey = `${type}-${internalName}`;
+        const btn = document.getElementById(`r-${type}-${internalName}`);
+        if(activeRoutes.has(routeKey)) {
+            activeRoutes.delete(routeKey);
+            if(btn) btn.classList.remove('active');
+        } else {
+            activeRoutes.add(routeKey);
+            if(btn) btn.classList.add('active');
+        }
+        drawRouteLines();
+        debouncedRender(window.lastV);
+    }
+
+    function drawRouteLines() {
+        Object.keys(routeLines).forEach(key => {
+            if(!activeRoutes.has(key)) {
+                map.removeLayer(routeLines[key]);
+                delete routeLines[key];
+            }
+        });
+        activeRoutes.forEach(key => {
+            if(!routeLines[key] && shapesData[key]) {
+                const type = key.split('-')[0];
+                let color = type === 'tram' ? '#e67e22' : (type === 'trolley' ? '#9b59b6' : '#e74c3c');
+                routeLines[key] = L.polyline(shapesData[key], { color: color, weight: 5, opacity: 0.75 }).addTo(map);
+            }
+        });
+    }
+
+    fetch('mapping.json?t=' + Date.now())
+        .then(r => r.json())
+        .then(data => { window.mapping = data; console.log('✅ Mapping завантажено'); })
+        .catch(() => console.warn('mapping.json не знайдено'));
+
+    get(ref(db, 'shapes')).then(snap => {
+        if(snap.exists()) {
+            const rawShapes = snap.val();
+            Object.keys(rawShapes).forEach(rawKey => {
+                const name = rawKey.toString().trim();
+                let type = name.startsWith('Тр') ? 'trolley' : (name.startsWith('Т') ? 'tram' : 'bus');
+                const clean = getCleanRoute(name);
+                if(clean) shapesData[`${type}-${clean}`] = rawShapes[rawKey];
+            });
+        }
+    });
+
+    onValue(ref(db, 'vehicles'), snap => {
+        window.lastV = snap.val() || {};
+        document.querySelectorAll('.route-btn').forEach(el => el.classList.remove('online'));
+        Object.values(window.lastV).forEach(v => {
+            if(!v.r) return;
+            const cleanR = getCleanRoute(v.r);
+            const btn = document.getElementById(`r-${v.type}-${cleanR}`);
+            if(btn) btn.classList.add('online');
+        });
+        debouncedRender(window.lastV);
+    });
+
+    function getClimateInfo(climate) {
+        if (climate === 3) return { icon: '❄️', text: '❄️ Кондиціонер' };
+        if (climate === 2) return { icon: '❄️½', text: '❄️½ малий кондиціонер' };
+        if (climate === 1) return { icon: '🌬️', text: '🌬️ Вентиляція' };
+        if (climate === 0) return { icon: '', text: 'Відсутній кондиціонер' }; 
+        if (climate === 4) return { icon: '', text: 'Кондиціонер - невідомо' };
+        return { icon: '', text: '' };
+    }
+
+    window.toggleStats = () => {
+        showStats = !showStats;
+        document.getElementById('stats-panel').style.display = showStats ? 'block' : 'none';
+        if (showStats) updateStats();
+    };
+
+    function updateStats() {
+        const data = window.lastV || {};
+        const modelCount = {};
+        let filteredCount = 0;
+        let lowFloorCount = 0;
+        let acFullCount = 0;
+        let acOneCount = 0;
+        let ventCount = 0;
+
+        Object.entries(data).forEach(([id, v]) => {
+            if (!activeRoutes.has(`${v.type}-${getCleanRoute(v.r)}`)) return;
+            
+            const entry = window.mapping?.[id] || [];
+            const lowFloor = entry[1] === 1 || v.low_floor === 1;
+            const climate = entry[2] || 0;
+            const model = (entry[3] || 'Невідома').toString().trim();
+            
+            modelCount[model] = (modelCount[model] || 0) + 1;
+            filteredCount++;
+
+            if (lowFloor) lowFloorCount++;
+            if (climate === 3) acFullCount++;
+            if (climate === 2) acOneCount++;
+            if (climate === 1) ventCount++;
+        });
+
+        let html = `<b>Всього на карті:</b> ${Object.keys(data).length}<br>`;
+        html += `<b>З обраних маршрутів:</b> ${filteredCount}<br>`;
+        html += `♿ Низька підлога: ${lowFloorCount}<br>`;
+        html += `❄️❄️ Повноцінний конд.: ${acFullCount}<br>`;
+        html += `❄️ Один конд.: ${acOneCount}<br>`;
+        html += `🌬️ Вентиляція: ${ventCount}<br><br>`;
+
+        const modelHTML = Object.keys(modelCount).sort().map(model => {
+            const safeModel = model.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+            return `
+                <label class="filter-option">
+                    <input type="checkbox" ${selectedModels.has(model) ? 'checked' : ''} 
+                           onchange="window.toggleModelFilter('${safeModel}')"> 
+                    ${model} <small>(${modelCount[model]})</small>
+                </label>
+            `;
+        }).join('');
+
+        document.getElementById('model-filters').innerHTML = modelHTML;
+        document.getElementById('stats-content').innerHTML = html;
+    }
+
+    window.toggleModelFilter = (model) => {
+        if (selectedModels.has(model)) selectedModels.delete(model);
+        else selectedModels.add(model);
+        debouncedRender(window.lastV);
+    };
+
+    function getFilterState() {
+        return {
+            acFull: document.getElementById('filter-ac-full').checked,
+            acOne: document.getElementById('filter-ac-one').checked,
+            vent: document.getElementById('filter-vent').checked,
+            low: document.getElementById('filter-low').checked
+        };
+    }
+
+    window.applyFilters = () => debouncedRender(window.lastV);
+    window.resetFilters = () => {
+        selectedModels.clear();
+        document.getElementById('filter-ac-full').checked = false;
+        document.getElementById('filter-ac-one').checked = false;
+        document.getElementById('filter-vent').checked = false;
+        document.getElementById('filter-low').checked = false;
+        debouncedRender(window.lastV);
+    };
+
+    function render(data) {
+        if(!data) return;
+
+        const filters = getFilterState();
+        const anyClimateFilterActive = filters.acFull || filters.acOne || filters.vent;
+
+        // Видаляємо тільки непотрібні маркери
+        Object.keys(markers).forEach(id => {
+            const v = data[id];
+            if (!v || !activeRoutes.has(`${v.type}-${getCleanRoute(v.r)}`)) {
+                if (markers[id]) map.removeLayer(markers[id]);
+                delete markers[id];
+            }
+        });
+
+        Object.entries(data).forEach(([id, v]) => {
+            let cleanR = getCleanRoute(v.r);
+            if(!activeRoutes.has(`${v.type}-${cleanR}`)) return;
+
+            const lastUpdated = parseInt(v.last_updated || 0) * 1000;
+            const ageSec = Math.floor((Date.now() - lastUpdated) / 1000);
+            if (ageSec > 1800) return;
+
+            const mappingEntry = window.mapping?.[id] || [];
+            const lowFloor = mappingEntry[1] === 1 || v.low_floor === 1;
+            const climate = mappingEntry[2] || 0;
+            const model = (mappingEntry[3] || 'Невідома').toString().trim();
+
+            if (selectedModels.size > 0 && !selectedModels.has(model)) {
+                if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+                return;
+            }
+
+            if (filters.low && !lowFloor) { 
+                if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; } 
+                return; 
+            }
+
+            if (anyClimateFilterActive) {
+                let match = false;
+                if (filters.acFull && climate === 3) match = true;
+                if (filters.acOne && climate === 2) match = true;
+                if (filters.vent && climate === 1) match = true;
+                if (!match) {
+                    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+                    return;
+                }
+            }
+
+            let displayNumber = v.p || '';
+            if (typeof v.p === 'string' && v.p.includes(',')) {
+                displayNumber = v.p.split(',')[0].trim();
+            } else if (Array.isArray(v.p)) {
+                displayNumber = v.p[0] || '';
+            }
+
+            let color = v.has_bort 
+                ? (v.type === 'tram' ? '#e67e22' : (v.type === 'trolley' ? '#9b59b6' : '#e74c3c')) 
+                : '#2c3e50';
+
+            const climateInfo = getClimateInfo(climate);
+
+            const markerHtml = `
+                <div class="vehicle-marker-wrapper${lowFloor ? ' low-floor' : ''}">
+                    <div class="vehicle-arrow-box" style="transform: rotate(${v.b ?? 0}deg); color:${color};">⬆️</div>
+                    <div class="vehicle-title-box">
+                        ${getDisplayName(cleanR)} • ${displayNumber} ${climateInfo.icon}
+                    </div>
+                </div>
+            `;
+
+            const stopName = stopsDict[v.stop] ? stopsDict[v.stop].name : (v.stop || 'В дорозі...');
+
+            const popup = `<div style="font-size:13px; line-height:1.4;">
+                <b style="color:${color}">${getDisplayName(cleanR)}</b><br>
+                ${model ? `<b>Модель:</b> ${model}<br>` : ''}
+                ${lowFloor ? '<span style="color:#2ecc71">♿ Низька підлога</span><br>' : ''}
+                ${climateInfo.text ? `<span>${climateInfo.text}</span><br>` : ''}
+                <b>Номер:</b> ${displayNumber}<br>
+                <b>Зупинка:</b> ${stopName}<br>
+                <b>Швидкість:</b> ${v.s ?? 0} км/год<br>
+                <b>Оновлено:</b> ${ageSec} сек тому
+            </div>`;
+
+            if (markers[id]) {
+                const marker = markers[id];
+                marker.setLatLng([v.lat, v.lng]);
+                const el = marker.getElement();
+                if (el) el.innerHTML = markerHtml;
+                marker.setPopupContent(popup);
+            } else {
+                const icon = L.divIcon({
+                    html: markerHtml,
+                    className: '',
+                    iconSize: [150, 78],
+                    iconAnchor: [75, 38]
+                });
+                markers[id] = L.marker([v.lat, v.lng], {icon}).addTo(map).bindPopup(popup);
+            }
+        });
+
+        if (showStats) updateStats();
+    }
+
+    window.lastV = {};
+</script>
+</body>
+</html>
